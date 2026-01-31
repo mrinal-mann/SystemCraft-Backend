@@ -7,14 +7,27 @@ from app.llm.schemas import LLMResponse
 
 logger = logging.getLogger(__name__)
 
+# ============== Concept Buckets (Keyword Constants) ==============
+
+CACHE_KEYWORDS = ["cache", "caching", "redis", "memcached", "cdn", "varnish", "in-memory"]
+SCALING_KEYWORDS = ["horizontal scaling", "load balancer", "auto-scaling", "scale out", "multiple instances", "kubernetes", "k8s", "elasticity"]
+RATE_LIMITING_KEYWORDS = ["rate limit", "rate-limit", "throttle", "throttling", "api gateway", "quota", "leaky bucket", "token bucket"]
+INDEXING_KEYWORDS = ["index", "indexing", "query optimization", "explain", "primary key", "foreign key", "b-tree", "full text search"]
+AUTH_KEYWORDS = ["authentication", "authorization", "auth", "jwt", "oauth", "rbac", "permissions", "abac", "mfa", "sso"]
+ERROR_HANDLING_KEYWORDS = ["error handling", "exception", "retry", "fallback", "circuit breaker", "graceful degradation", "dead letter queue"]
+OBSERVABILITY_KEYWORDS = ["monitoring", "logging", "metrics", "alerting", "observability", "tracing", "prometheus", "grafana", "elk stack"]
+BACKUP_KEYWORDS = ["backup", "disaster recovery", "replication", "snapshot", "restore", "dr", "point-in-time recovery"]
+VERSIONING_KEYWORDS = ["api version", "versioning", "v1", "v2", "backward compatible", "deprecation", "semantic versioning"]
+SHARDING_KEYWORDS = ["shard", "sharding", "partition", "partitioning", "distributed database", "horizontal partitioning"]
+ASYNC_KEYWORDS = ["queue", "message queue", "kafka", "rabbitmq", "sqs", "async", "event-driven", "pubsub", "worker", "celery"]
+VALIDATION_KEYWORDS = ["validation", "sanitize", "sanitization", "input validation", "schema validation", "pydantic", "cors"]
+
 # ============== Rule Definitions ==============
-# Each rule: (keywords_to_check, suggestion_if_missing)
-# Rules check if the design mentions certain concepts
 
 ANALYSIS_RULES: List[Dict] = [
     # Caching Rules
     {
-        "keywords": ["cache", "caching", "redis", "memcached", "cdn"],
+        "keywords": CACHE_KEYWORDS,
         "suggestion": {
             "title": "Consider Adding Caching Layer",
             "description": (
@@ -29,7 +42,7 @@ ANALYSIS_RULES: List[Dict] = [
     
     # Scalability Rules
     {
-        "keywords": ["horizontal scaling", "load balancer", "auto-scaling", "scale out", "multiple instances", "kubernetes", "k8s"],
+        "keywords": SCALING_KEYWORDS,
         "suggestion": {
             "title": "Add Horizontal Scaling Strategy",
             "description": (
@@ -44,7 +57,7 @@ ANALYSIS_RULES: List[Dict] = [
     
     # Rate Limiting Rules
     {
-        "keywords": ["rate limit", "rate-limit", "throttle", "throttling", "api gateway", "quota"],
+        "keywords": RATE_LIMIT_KEYWORDS if 'RATE_LIMIT_KEYWORDS' in locals() else RATE_LIMITING_KEYWORDS,
         "suggestion": {
             "title": "Implement Rate Limiting",
             "description": (
@@ -59,7 +72,7 @@ ANALYSIS_RULES: List[Dict] = [
     
     # Database Indexing
     {
-        "keywords": ["index", "indexing", "query optimization", "explain", "primary key", "foreign key"],
+        "keywords": INDEXING_KEYWORDS,
         "suggestion": {
             "title": "Define Database Indexing Strategy",
             "description": (
@@ -74,7 +87,7 @@ ANALYSIS_RULES: List[Dict] = [
     
     # Authentication & Authorization
     {
-        "keywords": ["authentication", "authorization", "auth", "jwt", "oauth", "rbac", "permissions"],
+        "keywords": AUTH_KEYWORDS,
         "suggestion": {
             "title": "Define Authentication & Authorization",
             "description": (
@@ -89,7 +102,7 @@ ANALYSIS_RULES: List[Dict] = [
     
     # Error Handling
     {
-        "keywords": ["error handling", "exception", "retry", "fallback", "circuit breaker", "graceful degradation"],
+        "keywords": ERROR_HANDLING_KEYWORDS,
         "suggestion": {
             "title": "Add Error Handling Strategy",
             "description": (
@@ -104,7 +117,7 @@ ANALYSIS_RULES: List[Dict] = [
     
     # Monitoring & Logging
     {
-        "keywords": ["monitoring", "logging", "metrics", "alerting", "observability", "tracing", "prometheus", "grafana"],
+        "keywords": OBSERVABILITY_KEYWORDS,
         "suggestion": {
             "title": "Implement Observability",
             "description": (
@@ -119,7 +132,7 @@ ANALYSIS_RULES: List[Dict] = [
     
     # Data Backup
     {
-        "keywords": ["backup", "disaster recovery", "replication", "snapshot", "restore", "dr"],
+        "keywords": BACKUP_KEYWORDS,
         "suggestion": {
             "title": "Plan for Data Backup & Recovery",
             "description": (
@@ -134,7 +147,7 @@ ANALYSIS_RULES: List[Dict] = [
     
     # API Versioning
     {
-        "keywords": ["api version", "versioning", "v1", "v2", "backward compatible", "deprecation"],
+        "keywords": VERSIONING_KEYWORDS,
         "suggestion": {
             "title": "Consider API Versioning Strategy",
             "description": (
@@ -147,9 +160,9 @@ ANALYSIS_RULES: List[Dict] = [
         }
     },
     
-    # Database Sharding (for large scale)
+    # Database Sharding
     {
-        "keywords": ["shard", "sharding", "partition", "partitioning", "distributed database"],
+        "keywords": SHARDING_KEYWORDS,
         "suggestion": {
             "title": "Consider Database Partitioning",
             "description": (
@@ -164,7 +177,7 @@ ANALYSIS_RULES: List[Dict] = [
     
     # Message Queue (for async processing)
     {
-        "keywords": ["queue", "message queue", "kafka", "rabbitmq", "sqs", "async", "event-driven", "pubsub"],
+        "keywords": ASYNC_KEYWORDS,
         "suggestion": {
             "title": "Consider Asynchronous Processing",
             "description": (
@@ -179,7 +192,7 @@ ANALYSIS_RULES: List[Dict] = [
     
     # Data Validation
     {
-        "keywords": ["validation", "sanitize", "sanitization", "input validation", "schema validation"],
+        "keywords": VALIDATION_KEYWORDS,
         "suggestion": {
             "title": "Add Input Validation",
             "description": (
@@ -192,6 +205,7 @@ ANALYSIS_RULES: List[Dict] = [
         }
     },
 ]
+
 
 
 def analyze_design_content(content: str) -> List[Dict]:
