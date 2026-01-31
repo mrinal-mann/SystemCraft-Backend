@@ -1,0 +1,19 @@
+# FastAPI and ASGI server
+fastapi
+uvicorn[standard]
+
+# Prisma ORM - Python client
+prisma
+
+# Authentication & Security
+python-jose[cryptography]
+passlib[bcrypt]
+python-multipart
+
+# Configuration
+pydantic-settings
+email-validator
+
+# Development
+python-dotenv
+httpx
