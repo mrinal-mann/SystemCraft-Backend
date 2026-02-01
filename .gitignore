@@ -25,6 +25,11 @@ htmlcov/
 
 # Database
 *.db
+prisma-query-engine-*
+prisma-introspection-engine-*
+prisma-migration-engine-*
+prisma-fmt-*
+
 
 # OS
 .DS_Store

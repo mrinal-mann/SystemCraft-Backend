@@ -5,10 +5,13 @@ set -o errexit
 # Install dependencies
 pip install -r requirements.txt
 
+# Set binary cache directory to project root
+# This ensures binaries are included in the deployment and found at runtime
+export PRISMA_PY_BINARY_CACHE_DIR=.
+
 # Fetch Prisma binaries
-# This ensures the query engine and other binaries are available in the production environment
 python -m prisma py fetch
 
 # Generate Prisma Client
-# This is required for the application to interact with the database
 python -m prisma generate
+
