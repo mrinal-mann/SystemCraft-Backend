@@ -95,7 +95,7 @@ async def create_project(db: Prisma, project_data: ProjectCreate, owner_id: int)
             "designDetails": {
                 "create": {
                     "content": initial_content,
-                    "version": 1
+                    "version": 0
                 }
             }
         },
@@ -135,32 +135,25 @@ async def update_design_details(db: Prisma, project_id: int, design_data: Design
     """
     Update the design details for a project.
     
-    Increments the version number for tracking and sets project status to IN_PROGRESS.
+    Versioning is now handled by the analysis service during the run_analysis 
+    cycle to ensure versions correctly reflect analyzed "snapshots".
     """
-    # Get current version
-    current_design = await db.designdetails.find_unique(
-        where={"projectId": project_id}
-    )
-    
-    new_version = (current_design.version + 1) if current_design else 1
-    
-    # Update design details
+    # Simply update design content
     await db.designdetails.upsert(
         where={"projectId": project_id},
         data={
             "create": {
                 "projectId": project_id,
                 "content": design_data.content,
-                "version": 1
+                "version": 0
             },
             "update": {
-                "content": design_data.content,
-                "version": new_version
+                "content": design_data.content
             }
         }
     )
     
-    # Update project status
+    # Update project status to IN_PROGRESS
     project = await db.project.update(
         where={"id": project_id},
         data={"status": "IN_PROGRESS"},

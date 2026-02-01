@@ -169,7 +169,10 @@ async def get_project_with_suggestions(
                 severity=s.severity,
                 design_version=s.designVersion,
                 project_id=s.projectId,
-                created_at=s.createdAt
+                created_at=s.createdAt,
+                status=s.status,  # ✓ Include status
+                addressed_at=s.addressedAt,  # ✓ Include when addressed
+                addressed_in_version=s.addressedInVersion  # ✓ Include version
             )
             for s in project.suggestions
         ]

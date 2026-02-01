@@ -8,6 +8,7 @@ This is the central orchestrator that:
 4. Sets up database connection lifecycle
 """
 
+import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -15,6 +16,19 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.v1.router import api_router
 from app.core.config import settings
 from app.core.database import connect_db, disconnect_db
+
+# Configure logging for the application
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+
+# Set specific loggers to INFO level
+logging.getLogger("app.services.analysis_service").setLevel(logging.INFO)
+logging.getLogger("app.llm.openrouter_client").setLevel(logging.INFO)
+logging.getLogger("app.api.v1.endpoints.analysis").setLevel(logging.INFO)
+
 
 
 @asynccontextmanager

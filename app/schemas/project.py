@@ -20,7 +20,7 @@ class ProjectStatus(str, Enum):
     IN_PROGRESS = "IN_PROGRESS"
     ANALYZED = "ANALYZED"
 
-from app.schemas.suggestion import SuggestionResponse
+from app.schemas.suggestion import SuggestionResponse, DesignVersionResponse
 
 
 # ============== Design Details Schemas ==============
@@ -80,6 +80,9 @@ class ProjectResponse(ProjectBase):
     created_at: datetime
     updated_at: datetime
     design_details: Optional[DesignDetailsResponse] = None
+    # Step 3: Maturity Score
+    maturity_score: int = 0
+    maturity_reason: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -93,6 +96,8 @@ class ProjectListResponse(BaseModel):
     status: ProjectStatus
     created_at: datetime
     updated_at: datetime
+    # Step 3: Maturity Score in list view
+    maturity_score: int = 0
 
     class Config:
         from_attributes = True
@@ -104,3 +109,13 @@ class ProjectWithSuggestions(ProjectResponse):
 
     class Config:
         from_attributes = True
+
+
+class ProjectWithEvolution(ProjectResponse):
+    """Schema for project with version history (Step 4)."""
+    suggestions: List[SuggestionResponse] = []
+    design_versions: List[DesignVersionResponse] = []
+    
+    class Config:
+        from_attributes = True
+

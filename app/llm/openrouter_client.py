@@ -77,6 +77,14 @@ class OpenRouterClient(LLMClient):
             "max_tokens": 2000,  # Enough for explanations
         }
         
+        # ========== LOG REQUEST ==========
+        logger.info(f"\n{'='*60}")
+        logger.info(f"[LLM REQUEST] Sending to OpenRouter...")
+        logger.info(f"[LLM REQUEST] Model: {self.model}")
+        logger.info(f"[LLM REQUEST] Prompt preview (first 500 chars):")
+        logger.info(f"{prompt[:500]}...")
+        logger.info(f"{'='*60}")
+        
         try:
             # Make async HTTP request
             async with httpx.AsyncClient(timeout=timeout) as client:
@@ -88,12 +96,12 @@ class OpenRouterClient(LLMClient):
             
             # Log latency
             latency_ms = int((time.time() - start_time) * 1000)
-            logger.info(f"OpenRouter response in {latency_ms}ms, status={response.status_code}")
+            logger.info(f"[LLM RESPONSE] Received in {latency_ms}ms, status={response.status_code}")
             
             # Check for HTTP errors
             if response.status_code != 200:
                 error_detail = response.text
-                logger.error(f"OpenRouter API error: {response.status_code} - {error_detail}")
+                logger.error(f"[LLM ERROR] API error: {response.status_code} - {error_detail}")
                 raise LLMError(f"OpenRouter API returned {response.status_code}: {error_detail}")
             
             # Parse response
@@ -109,29 +117,35 @@ class OpenRouterClient(LLMClient):
             if not content:
                 raise LLMError("OpenRouter returned empty content")
             
-            # Log the raw response for debugging
-            logger.debug(f"LLM raw response: {content[:500]}...")
+            # ========== LOG RESPONSE ==========
+            logger.info(f"\n{'='*60}")
+            logger.info(f"[LLM RESPONSE] Raw content (first 1000 chars):")
+            logger.info(f"{content[:1000]}")
+            if len(content) > 1000:
+                logger.info(f"... ({len(content) - 1000} more chars)")
+            logger.info(f"{'='*60}")
             
             # Parse and validate JSON
             try:
                 parsed = json.loads(content)
             except json.JSONDecodeError as e:
-                logger.error(f"LLM returned invalid JSON: {content[:200]}")
+                logger.error(f"[LLM ERROR] Invalid JSON: {content[:200]}")
                 raise LLMError(f"Invalid JSON from LLM: {e}")
             
             # Validate against schema
             try:
                 llm_response = LLMResponse(**parsed)
+                logger.info(f"[LLM SUCCESS] Validated response with {len(llm_response.explanations)} explanations")
             except Exception as e:
-                logger.error(f"LLM response failed schema validation: {e}")
+                logger.error(f"[LLM ERROR] Schema validation failed: {e}")
                 raise LLMError(f"Schema validation failed: {e}")
             
             return llm_response
             
         except httpx.TimeoutException:
-            logger.error(f"OpenRouter request timed out after {timeout}s")
+            logger.error(f"[LLM ERROR] Request timed out after {timeout}s")
             raise LLMError(f"Request timed out after {timeout} seconds")
         
         except httpx.RequestError as e:
-            logger.error(f"HTTP request failed: {e}")
+            logger.error(f"[LLM ERROR] HTTP request failed: {e}")
             raise LLMError(f"HTTP request failed: {e}")
