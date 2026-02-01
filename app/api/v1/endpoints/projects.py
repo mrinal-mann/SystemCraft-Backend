@@ -57,7 +57,9 @@ def project_to_response(project: Project) -> ProjectResponse:
         owner_id=project.owner_id,
         created_at=project.created_at,
         updated_at=project.updated_at,
-        design_details=design_details
+        design_details=design_details,
+        maturity_score=project.maturity_score,
+        maturity_reason=project.maturity_reason
     )
 
 
@@ -69,7 +71,8 @@ def project_to_list_response(project: Project) -> ProjectListResponse:
         description=project.description,
         status=project.status.value,
         created_at=project.created_at,
-        updated_at=project.updated_at
+        updated_at=project.updated_at,
+        maturity_score=project.maturity_score
     )
 
 
@@ -189,7 +192,9 @@ async def get_project_with_suggestions(
         created_at=project.created_at,
         updated_at=project.updated_at,
         design_details=design_details,
-        suggestions=suggestions
+        suggestions=suggestions,
+        maturity_score=project.maturity_score,
+        maturity_reason=project.maturity_reason
     )
 
 
