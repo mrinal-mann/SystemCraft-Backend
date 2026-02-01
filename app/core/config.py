@@ -9,6 +9,7 @@ Design Decision:
 - Secrets have sensible dev defaults but MUST be overridden in production
 """
 
+import os
 from typing import List
 from pydantic_settings import BaseSettings
 
@@ -37,12 +38,16 @@ class Settings(BaseSettings):
     LLM_ENABLED: bool = True  # Set to False to disable LLM even if API key exists
     LLM_TIMEOUT_SECONDS: int = 30  # Request timeout
     
-    # CORS Origins
-    # For MVP: localhost ports for development
+    # CORS Origins - can be overridden via ALLOWED_ORIGINS env var
+    # Set env var as comma-separated: ALLOWED_ORIGINS=https://app1.com,https://app2.com
     ALLOWED_ORIGINS: List[str] = [
         "http://localhost:3000",  # Next.js default
         "http://127.0.0.1:3000",
+        "https://systemcraft-blush.vercel.app",
     ]
+    
+    # Debug mode
+    DEBUG: bool = False
     
     class Config:
         env_file = ".env"
@@ -52,3 +57,8 @@ class Settings(BaseSettings):
 
 # Singleton settings instance
 settings = Settings()
+
+# Allow adding origins via FRONTEND_URL env var (convenience for single frontend)
+frontend_url = os.getenv("FRONTEND_URL")
+if frontend_url and frontend_url not in settings.ALLOWED_ORIGINS:
+    settings.ALLOWED_ORIGINS.append(frontend_url)
