@@ -12,11 +12,12 @@ Endpoints:
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
-from prisma import Prisma
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.core.security import create_access_token
+from app.models.user import User
 from app.schemas.user import (
     UserCreate,
     UserResponse,
@@ -28,7 +29,7 @@ from app.services import user_service
 router = APIRouter()
 
 @router.post("/signup", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
-async def signup(user_data: UserCreate, db: Prisma = Depends(get_db)):
+async def signup(user_data: UserCreate, db: AsyncSession = Depends(get_db)):
     """
     Register a new user.
     
@@ -48,15 +49,15 @@ async def signup(user_data: UserCreate, db: Prisma = Depends(get_db)):
     return UserResponse(
         id=user.id,
         email=user.email,
-        full_name=user.fullName,
-        created_at=user.createdAt,
-        updated_at=user.updatedAt
+        full_name=user.full_name,
+        created_at=user.created_at,
+        updated_at=user.updated_at
     )
 
 
 @router.post("/login", response_model=Token)
 async def login(
-    db: Prisma = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
     form_data: OAuth2PasswordRequestForm = Depends()
 ):
     """
@@ -84,7 +85,7 @@ async def login(
 
 
 @router.get("/me", response_model=UserResponse)
-async def get_current_user_profile(current_user = Depends(get_current_user)):
+async def get_current_user_profile(current_user: User = Depends(get_current_user)):
     """
     Get the current authenticated user's profile.
     
@@ -93,17 +94,17 @@ async def get_current_user_profile(current_user = Depends(get_current_user)):
     return UserResponse(
         id=current_user.id,
         email=current_user.email,
-        full_name=current_user.fullName,
-        created_at=current_user.createdAt,
-        updated_at=current_user.updatedAt
+        full_name=current_user.full_name,
+        created_at=current_user.created_at,
+        updated_at=current_user.updated_at
     )
 
 
 @router.put("/me", response_model=UserResponse)
 async def update_current_user_profile(
     user_data: UserUpdate,
-    current_user = Depends(get_current_user),
-    db: Prisma = Depends(get_db)
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
 ):
     """
     Update the current authenticated user's profile.
@@ -116,7 +117,7 @@ async def update_current_user_profile(
     return UserResponse(
         id=updated_user.id,
         email=updated_user.email,
-        full_name=updated_user.fullName,
-        created_at=updated_user.createdAt,
-        updated_at=updated_user.updatedAt
+        full_name=updated_user.full_name,
+        created_at=updated_user.created_at,
+        updated_at=updated_user.updated_at
     )

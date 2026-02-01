@@ -2,8 +2,13 @@
 fastapi
 uvicorn[standard]
 
-# Prisma ORM - Python client
-prisma
+# SQLAlchemy ORM with Async Support
+sqlalchemy[asyncio]>=2.0.0
+asyncpg>=0.29.0
+greenlet>=3.0.0
+
+# Database Migrations
+alembic>=1.13.0
 
 # Authentication & Security
 python-jose[cryptography]

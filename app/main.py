@@ -37,13 +37,17 @@ async def lifespan(app: FastAPI):
     Application lifespan manager.
     
     Handles startup and shutdown events:
-    - Connects to database on startup
-    - Disconnects from database on shutdown
+    - Logs startup (database engine is created on import)
+    - Disposes of database connections on shutdown
+    
+    Note: Tables are managed via Alembic migrations, not auto-created here.
     """
-    # Startup
-    await connect_db()
+    # Startup - engine is created on module import
+    # For development, you can uncomment the next line to auto-create tables:
+    # await connect_db()  # This calls init_db() which creates tables
+    logging.info("Application startup complete")
     yield
-    # Shutdown
+    # Shutdown - dispose of connection pool
     await disconnect_db()
 
 

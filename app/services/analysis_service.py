@@ -1,7 +1,31 @@
-from typing import List, Dict, Tuple
-from datetime import datetime
-from prisma import Prisma
+"""
+Analysis Service
+
+Business logic for design analysis and suggestions using SQLAlchemy.
+
+Features:
+- Rule-based analysis for missing concepts
+- Maturity score calculation
+- Design version tracking
+- Auto-detection of addressed suggestions
+- LLM enrichment for explanations
+"""
+
+from typing import List, Dict, Tuple, Optional
+from datetime import datetime, timezone
+from sqlalchemy import select, update
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 import logging
+
+from app.models.project import Project, ProjectStatus
+from app.models.design import DesignDetails, DesignVersion
+from app.models.suggestion import (
+    Suggestion,
+    SuggestionCategory,
+    SuggestionSeverity,
+    SuggestionStatus,
+)
 from app.llm.client import get_llm_client, LLMError
 from app.llm.prompts import build_explanation_prompt
 from app.llm.schemas import LLMResponse
@@ -406,7 +430,7 @@ def analyze_design_content(content: str) -> List[Dict]:
 # ============== Step 2: Auto-detect Addressed Suggestions ==============
 
 async def check_and_update_addressed_suggestions(
-    db: Prisma,
+    db: AsyncSession,
     project_id: int,
     content: str,
     new_version: int
@@ -417,7 +441,7 @@ async def check_and_update_addressed_suggestions(
     IMPROVED: Now matches by TITLE to find the correct rule and keywords.
     
     Args:
-        db: Prisma client
+        db: AsyncSession
         project_id: Project ID
         content: New design content
         new_version: The new version number
@@ -429,18 +453,19 @@ async def check_and_update_addressed_suggestions(
     addressed_count = 0
     
     # Get all OPEN suggestions for this project
-    open_suggestions = await db.suggestion.find_many(
-        where={
-            "projectId": project_id,
-            "status": "OPEN"
-        }
+    result = await db.execute(
+        select(Suggestion).where(
+            Suggestion.project_id == project_id,
+            Suggestion.status == SuggestionStatus.OPEN
+        )
     )
+    open_suggestions = list(result.scalars().all())
     
     logger.info(f"[AUTO-ADDRESS] Checking {len(open_suggestions)} OPEN suggestions for project {project_id}")
     
     for suggestion in open_suggestions:
         # Get the trigger keywords - FIRST from stored, then from rule by TITLE
-        trigger_keywords = suggestion.triggerKeywords or []
+        trigger_keywords = suggestion.trigger_keywords or []
         
         # If no stored keywords, find by matching TITLE (more reliable than category)
         if not trigger_keywords:
@@ -463,17 +488,13 @@ async def check_and_update_addressed_suggestions(
         
         if matched_keyword:
             # Mark as addressed
-            await db.suggestion.update(
-                where={"id": suggestion.id},
-                data={
-                    "status": "ADDRESSED",
-                    "addressedAt": datetime.utcnow(),
-                    "addressedInVersion": new_version
-                }
-            )
+            suggestion.status = SuggestionStatus.ADDRESSED
+            suggestion.addressed_at = datetime.now(timezone.utc)
+            suggestion.addressed_in_version = new_version
             addressed_count += 1
             logger.info(f"[AUTO-ADDRESS] ✓ '{suggestion.title}' marked ADDRESSED (matched: '{matched_keyword}')")
     
+    await db.commit()
     logger.info(f"[AUTO-ADDRESS] Total addressed: {addressed_count} suggestions")
     return addressed_count
 
@@ -481,20 +502,20 @@ async def check_and_update_addressed_suggestions(
 # ============== Step 1: Design Version Management ==============
 
 async def create_design_version(
-    db: Prisma,
+    db: AsyncSession,
     project_id: int,
     content: str,
     version_number: int,
     maturity_score: int,
     suggestions_count: int
-):
+) -> None:
     """
     Create a new design version snapshot.
     
     IMPROVED: Checks for existing version to avoid duplicates.
     
     Args:
-        db: Prisma client
+        db: AsyncSession
         project_id: Project ID
         content: Design content at this version
         version_number: Version number
@@ -502,44 +523,43 @@ async def create_design_version(
         suggestions_count: Number of suggestions at this version
     """
     # Check if this version already exists (avoid duplicates)
-    existing = await db.designversion.find_first(
-        where={
-            "projectId": project_id,
-            "versionNumber": version_number
-        }
+    result = await db.execute(
+        select(DesignVersion).where(
+            DesignVersion.project_id == project_id,
+            DesignVersion.version_number == version_number
+        )
     )
+    existing = result.scalar_one_or_none()
     
     if existing:
         # Update existing version instead of creating duplicate
-        await db.designversion.update(
-            where={"id": existing.id},
-            data={
-                "content": content,
-                "maturityScore": maturity_score,
-                "suggestionsCount": suggestions_count
-            }
-        )
+        existing.content = content
+        existing.maturity_score = maturity_score
+        existing.suggestions_count = suggestions_count
         logger.info(f"[VERSION] Updated existing version {version_number} for project {project_id}")
     else:
         # Create new version
-        await db.designversion.create(
-            data={
-                "projectId": project_id,
-                "versionNumber": version_number,
-                "content": content,
-                "maturityScore": maturity_score,
-                "suggestionsCount": suggestions_count
-            }
+        new_version = DesignVersion(
+            project_id=project_id,
+            version_number=version_number,
+            content=content,
+            maturity_score=maturity_score,
+            suggestions_count=suggestions_count,
         )
+        db.add(new_version)
         logger.info(f"[VERSION] Created new version {version_number} for project {project_id}")
+    
+    await db.commit()
 
 
-async def get_design_versions(db: Prisma, project_id: int) -> List:
+async def get_design_versions(db: AsyncSession, project_id: int) -> List[DesignVersion]:
     """Get all design versions for a project, ordered by version number."""
-    return await db.designversion.find_many(
-        where={"projectId": project_id},
-        order={"versionNumber": "asc"}
+    result = await db.execute(
+        select(DesignVersion)
+        .where(DesignVersion.project_id == project_id)
+        .order_by(DesignVersion.version_number.asc())
     )
+    return list(result.scalars().all())
 
 
 async def enrich_with_llm_explanations(
@@ -604,7 +624,7 @@ async def enrich_with_llm_explanations(
         return {}
 
 
-async def run_analysis(db: Prisma, project_id: int) -> Dict:
+async def run_analysis(db: AsyncSession, project_id: int) -> Dict:
     """
     Run analysis on a project's design and save suggestions.
     
@@ -618,7 +638,7 @@ async def run_analysis(db: Prisma, project_id: int) -> Dict:
     7. Updates project status and maturity score
     
     Args:
-        db: Prisma client
+        db: AsyncSession
         project_id: ID of the project to analyze
     
     Returns:
@@ -628,13 +648,18 @@ async def run_analysis(db: Prisma, project_id: int) -> Dict:
     logger.info(f"[ANALYSIS] Starting analysis for project {project_id}")
     logger.info(f"{'='*60}")
     
-    # Get project with design details
-    project = await db.project.find_unique(
-        where={"id": project_id},
-        include={"designDetails": True, "suggestions": True}
+    # Get project with design details and suggestions
+    result = await db.execute(
+        select(Project)
+        .options(
+            selectinload(Project.design_details),
+            selectinload(Project.suggestions)
+        )
+        .where(Project.id == project_id)
     )
+    project = result.scalar_one_or_none()
     
-    if not project or not project.designDetails:
+    if not project or not project.design_details:
         logger.warning(f"[ANALYSIS] No design content found for project {project_id}")
         return {
             "suggestions": [],
@@ -643,35 +668,35 @@ async def run_analysis(db: Prisma, project_id: int) -> Dict:
             "newly_addressed_count": 0
         }
     
-    design_content = project.designDetails.content
-    old_version = project.designDetails.version
+    design_content = project.design_details.content
+    old_version = project.design_details.version
     
     # ========== Determine Correct Design Version ==========
     # Logic: Version = state after analysis. 
     # If content changed since last analysis, it's a new version.
     
     # Get last analyzed version record
-    last_version_record = await db.designversion.find_first(
-        where={"projectId": project_id},
-        order={"versionNumber": "desc"}
+    result = await db.execute(
+        select(DesignVersion)
+        .where(DesignVersion.project_id == project_id)
+        .order_by(DesignVersion.version_number.desc())
+        .limit(1)
     )
+    last_version_record = result.scalar_one_or_none()
     
     if not last_version_record:
         # First analysis ever = Version 1
         design_version = 1
     elif last_version_record.content != design_content:
         # Content changed since last analysis = Next Version
-        design_version = last_version_record.versionNumber + 1
+        design_version = last_version_record.version_number + 1
     else:
         # Content is the same = Stick with current version
-        design_version = last_version_record.versionNumber
+        design_version = last_version_record.version_number
     
     # Update project's design version if it's different from current DB state
     if design_version != old_version:
-        await db.designdetails.update(
-            where={"projectId": project_id},
-            data={"version": design_version}
-        )
+        project.design_details.version = design_version
         logger.info(f"[VERSION] Design version updated: {old_version} -> {design_version}")
     
     logger.info(f"[ANALYSIS] Design version for this run: {design_version}")
@@ -722,9 +747,7 @@ async def run_analysis(db: Prisma, project_id: int) -> Dict:
     # ========== Smart Suggestion Creation ==========
     # Only create suggestions that don't already exist (avoid duplicates)
     logger.info(f"\n[SUGGESTIONS] Creating new suggestions...")
-    existing_titles = set()
-    for s in project.suggestions:
-        existing_titles.add(s.title)
+    existing_titles = {s.title for s in project.suggestions}
     logger.info(f"[SUGGESTIONS] Already existing: {list(existing_titles)}")
     
     created_suggestions = []
@@ -734,31 +757,40 @@ async def run_analysis(db: Prisma, project_id: int) -> Dict:
         if data["title"] in existing_titles:
             skipped_suggestions.append(data["title"])
             continue
-            
-        suggestion = await db.suggestion.create(
-            data={
-                "title": data["title"],
-                "description": data["description"],
-                "category": data["category"],
-                "severity": data["severity"],
-                "designVersion": design_version,
-                "projectId": project_id,
-                "status": "OPEN",
-                "triggerKeywords": data.get("trigger_keywords", [])
-            }
+        
+        # Map string category/severity to enum
+        category_enum = SuggestionCategory(data["category"])
+        severity_enum = SuggestionSeverity(data["severity"])
+        
+        suggestion = Suggestion(
+            title=data["title"],
+            description=data["description"],
+            category=category_enum,
+            severity=severity_enum,
+            design_version=design_version,
+            project_id=project_id,
+            status=SuggestionStatus.OPEN,
+            trigger_keywords=data.get("trigger_keywords", []),
         )
+        db.add(suggestion)
         created_suggestions.append(suggestion)
         logger.info(f"[SUGGESTIONS] + Created: {data['title']}")
     
     if skipped_suggestions:
         logger.info(f"[SUGGESTIONS] Skipped (already exist): {skipped_suggestions}")
     
+    await db.commit()
+    
     # ========== Step 1: Create Design Version Snapshot ==========
     logger.info(f"\n[STEP 1] Creating version snapshot...")
     # Get fresh count of open suggestions
-    open_suggestions = await db.suggestion.find_many(
-        where={"projectId": project_id, "status": "OPEN"}
+    result = await db.execute(
+        select(Suggestion).where(
+            Suggestion.project_id == project_id,
+            Suggestion.status == SuggestionStatus.OPEN
+        )
     )
+    open_suggestions = list(result.scalars().all())
     
     await create_design_version(
         db, project_id, design_content, design_version,
@@ -766,20 +798,18 @@ async def run_analysis(db: Prisma, project_id: int) -> Dict:
     )
     
     # ========== Update Project Status and Maturity ==========
-    await db.project.update(
-        where={"id": project_id},
-        data={
-            "status": "ANALYZED",
-            "maturityScore": maturity_score,
-            "maturityReason": maturity_reason
-        }
-    )
+    project.status = ProjectStatus.ANALYZED
+    project.maturity_score = maturity_score
+    project.maturity_reason = maturity_reason
+    await db.commit()
     
     # Get all suggestions (fresh query)
-    all_suggestions = await db.suggestion.find_many(
-        where={"projectId": project_id},
-        order={"createdAt": "desc"}
+    result = await db.execute(
+        select(Suggestion)
+        .where(Suggestion.project_id == project_id)
+        .order_by(Suggestion.created_at.desc())
     )
+    all_suggestions = list(result.scalars().all())
     
     logger.info(f"\n{'='*60}")
     logger.info(f"[ANALYSIS] Complete! Summary:")
@@ -799,25 +829,27 @@ async def run_analysis(db: Prisma, project_id: int) -> Dict:
     }
 
 
-async def get_suggestions_for_project(db: Prisma, project_id: int) -> List:
+async def get_suggestions_for_project(db: AsyncSession, project_id: int) -> List[Suggestion]:
     """Get all suggestions for a project, ordered by creation date."""
-    return await db.suggestion.find_many(
-        where={"projectId": project_id},
-        order={"createdAt": "desc"}
+    result = await db.execute(
+        select(Suggestion)
+        .where(Suggestion.project_id == project_id)
+        .order_by(Suggestion.created_at.desc())
     )
+    return list(result.scalars().all())
 
 
 async def update_suggestion_status(
-    db: Prisma, 
+    db: AsyncSession, 
     suggestion_id: int, 
     status: str,
     version: int = None
-) -> object:
+) -> Optional[Suggestion]:
     """
     Manually update a suggestion's status.
     
     Args:
-        db: Prisma client
+        db: AsyncSession
         suggestion_id: Suggestion ID
         status: New status (OPEN, ADDRESSED, IGNORED)
         version: Version where it was addressed (optional)
@@ -825,32 +857,42 @@ async def update_suggestion_status(
     Returns:
         Updated suggestion
     """
-    update_data = {"status": status}
+    result = await db.execute(
+        select(Suggestion).where(Suggestion.id == suggestion_id)
+    )
+    suggestion = result.scalar_one_or_none()
+    
+    if not suggestion:
+        return None
+    
+    suggestion.status = SuggestionStatus(status)
     
     if status == "ADDRESSED":
-        update_data["addressedAt"] = datetime.utcnow()
+        suggestion.addressed_at = datetime.now(timezone.utc)
         if version:
-            update_data["addressedInVersion"] = version
+            suggestion.addressed_in_version = version
     elif status == "OPEN":
-        update_data["addressedAt"] = None
-        update_data["addressedInVersion"] = None
+        suggestion.addressed_at = None
+        suggestion.addressed_in_version = None
     
-    return await db.suggestion.update(
-        where={"id": suggestion_id},
-        data=update_data
-    )
+    await db.commit()
+    await db.refresh(suggestion)
+    
+    return suggestion
 
 
-async def get_project_evolution(db: Prisma, project_id: int) -> Dict:
+async def get_project_evolution(db: AsyncSession, project_id: int) -> Optional[Dict]:
     """
     Get the evolution history of a project (Step 4).
     
     Returns version history with maturity progression.
     """
-    project = await db.project.find_unique(
-        where={"id": project_id},
-        include={"designDetails": True}
+    result = await db.execute(
+        select(Project)
+        .options(selectinload(Project.design_details))
+        .where(Project.id == project_id)
     )
+    project = result.scalar_one_or_none()
     
     if not project:
         return None
@@ -862,12 +904,12 @@ async def get_project_evolution(db: Prisma, project_id: int) -> Dict:
         progress_summary = "No analysis history yet. Run your first analysis!"
     elif len(versions) == 1:
         v = versions[0]
-        progress_summary = f"Version 1: {v.suggestionsCount} suggestions, maturity {v.maturityScore}/5"
+        progress_summary = f"Version 1: {v.suggestions_count} suggestions, maturity {v.maturity_score}/5"
     else:
         first = versions[0]
         last = versions[-1]
-        suggestions_diff = first.suggestionsCount - last.suggestionsCount
-        maturity_diff = last.maturityScore - first.maturityScore
+        suggestions_diff = first.suggestions_count - last.suggestions_count
+        maturity_diff = last.maturity_score - first.maturity_score
         
         progress_parts = []
         if suggestions_diff > 0:
@@ -882,9 +924,8 @@ async def get_project_evolution(db: Prisma, project_id: int) -> Dict:
     
     return {
         "project_id": project_id,
-        "current_version": project.designDetails.version if project.designDetails else 0,
-        "current_maturity_score": project.maturityScore,
+        "current_version": project.design_details.version if project.design_details else 0,
+        "current_maturity_score": project.maturity_score,
         "versions": versions,
         "progress_summary": progress_summary
     }
-

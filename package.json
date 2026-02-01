@@ -1,7 +1,0 @@
-{
-  "name": "system-craft-backend",
-  "version": "1.0.0",
-  "scripts": {
-    "postinstall": "python3 -m prisma generate || python -m prisma generate"
-  }
-}

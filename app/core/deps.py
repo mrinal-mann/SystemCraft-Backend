@@ -7,25 +7,27 @@ Design Decisions:
 - OAuth2 password bearer for token extraction from headers
 - Single get_current_user dependency for protected routes
 - Raises 401 for invalid/missing tokens
-- Uses Prisma for database operations
+- Uses SQLAlchemy async session for database operations
 """
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
-from prisma import Prisma
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.database import get_db
+from app.models.user import User
 
 # Token URL must match the login endpoint
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f"{settings.API_V1_STR}/auth/login")
 
 
 async def get_current_user(
-    db: Prisma = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
     token: str = Depends(oauth2_scheme)
-):
+) -> User:
     """
     Dependency to get the current authenticated user.
     
@@ -34,10 +36,11 @@ async def get_current_user(
     
     Usage:
         @router.get("/me")
-        async def get_profile(current_user = Depends(get_current_user)):
+        async def get_profile(current_user: User = Depends(get_current_user)):
             return current_user
     
-    Note: Returns a Prisma User model (available after prisma generate).
+    Returns:
+        User: The authenticated user's SQLAlchemy model instance.
     """
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -57,7 +60,11 @@ async def get_current_user(
     except JWTError:
         raise credentials_exception
     
-    user = await db.user.find_unique(where={"id": int(user_id)})
+    # SQLAlchemy query to find user by ID
+    result = await db.execute(
+        select(User).where(User.id == int(user_id))
+    )
+    user = result.scalar_one_or_none()
     
     if user is None:
         raise credentials_exception

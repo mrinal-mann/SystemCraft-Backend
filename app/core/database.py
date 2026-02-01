@@ -1,42 +1,34 @@
 """
-Database Configuration for Prisma
+Database Configuration for SQLAlchemy
 
-Provides the Prisma client instance and dependency for FastAPI.
+Re-exports the database utilities from app.db for backward compatibility.
+This module maintains the same interface as the previous Prisma configuration.
 
 Design Decisions:
-- Using async Prisma client for better performance
-- Single client instance (connect on startup, disconnect on shutdown)
-- get_db dependency for route handlers
-
-Note: After running `prisma generate`, the client becomes available.
+- Using async SQLAlchemy for better performance
+- Single engine instance (created on import, disposed on shutdown)
+- get_db dependency returns AsyncSession for route handlers
 """
 
-from prisma import Prisma
+# Re-export from the new db module for backward compatibility
+from app.db.session import (
+    async_engine,
+    AsyncSessionLocal,
+    get_db,
+    init_db,
+    close_db,
+)
 
-# Global Prisma client instance
-prisma = Prisma()
+# Alias for lifespan functions (matching previous interface)
+connect_db = init_db
+disconnect_db = close_db
 
-
-async def connect_db():
-    """Connect to database on application startup."""
-    await prisma.connect()
-
-
-async def disconnect_db():
-    """Disconnect from database on application shutdown."""
-    await prisma.disconnect()
-
-
-async def get_db() -> Prisma:
-    """
-    Database dependency for route handlers.
-    
-    Returns the connected Prisma client instance.
-    
-    Usage:
-        @router.get("/items")
-        async def get_items(db: Prisma = Depends(get_db)):
-            items = await db.item.find_many()
-            ...
-    """
-    return prisma
+__all__ = [
+    "async_engine",
+    "AsyncSessionLocal", 
+    "get_db",
+    "connect_db",
+    "disconnect_db",
+    "init_db",
+    "close_db",
+]

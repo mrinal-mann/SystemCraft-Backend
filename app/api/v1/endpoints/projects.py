@@ -15,10 +15,13 @@ Endpoints:
 
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from prisma import Prisma
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.deps import get_current_user
+from app.models.user import User
+from app.models.project import Project
+from app.models.suggestion import Suggestion
 from app.schemas.project import (
     ProjectCreate,
     ProjectUpdate,
@@ -34,39 +37,39 @@ from app.services import project_service
 router = APIRouter()
 
 
-def project_to_response(project) -> ProjectResponse:
-    """Convert Prisma project to response schema."""
+def project_to_response(project: Project) -> ProjectResponse:
+    """Convert SQLAlchemy project to response schema."""
     design_details = None
-    if project.designDetails:
+    if project.design_details:
         design_details = DesignDetailsResponse(
-            id=project.designDetails.id,
-            content=project.designDetails.content,
-            version=project.designDetails.version,
-            created_at=project.designDetails.createdAt,
-            updated_at=project.designDetails.updatedAt
+            id=project.design_details.id,
+            content=project.design_details.content,
+            version=project.design_details.version,
+            created_at=project.design_details.created_at,
+            updated_at=project.design_details.updated_at
         )
     
     return ProjectResponse(
         id=project.id,
         title=project.title,
         description=project.description,
-        status=project.status,
-        owner_id=project.ownerId,
-        created_at=project.createdAt,
-        updated_at=project.updatedAt,
+        status=project.status.value,
+        owner_id=project.owner_id,
+        created_at=project.created_at,
+        updated_at=project.updated_at,
         design_details=design_details
     )
 
 
-def project_to_list_response(project) -> ProjectListResponse:
-    """Convert Prisma project to list response schema."""
+def project_to_list_response(project: Project) -> ProjectListResponse:
+    """Convert SQLAlchemy project to list response schema."""
     return ProjectListResponse(
         id=project.id,
         title=project.title,
         description=project.description,
-        status=project.status,
-        created_at=project.createdAt,
-        updated_at=project.updatedAt
+        status=project.status.value,
+        created_at=project.created_at,
+        updated_at=project.updated_at
     )
 
 
@@ -74,8 +77,8 @@ def project_to_list_response(project) -> ProjectListResponse:
 async def list_projects(
     skip: int = Query(0, ge=0, description="Number of projects to skip"),
     limit: int = Query(20, ge=1, le=100, description="Maximum projects to return"),
-    current_user = Depends(get_current_user),
-    db: Prisma = Depends(get_db)
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
 ):
     """
     List all projects for the current user.
@@ -90,8 +93,8 @@ async def list_projects(
 @router.post("", response_model=ProjectResponse, status_code=status.HTTP_201_CREATED)
 async def create_project(
     project_data: ProjectCreate,
-    current_user = Depends(get_current_user),
-    db: Prisma = Depends(get_db)
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
 ):
     """
     Create a new system design project.
@@ -109,8 +112,8 @@ async def create_project(
 @router.get("/{project_id}", response_model=ProjectResponse)
 async def get_project(
     project_id: int,
-    current_user = Depends(get_current_user),
-    db: Prisma = Depends(get_db)
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
 ):
     """
     Get a specific project by ID.
@@ -131,8 +134,8 @@ async def get_project(
 @router.get("/{project_id}/full", response_model=ProjectWithSuggestions)
 async def get_project_with_suggestions(
     project_id: int,
-    current_user = Depends(get_current_user),
-    db: Prisma = Depends(get_db)
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
 ):
     """
     Get a project with all analysis suggestions.
@@ -149,13 +152,13 @@ async def get_project_with_suggestions(
     
     # Convert to response
     design_details = None
-    if project.designDetails:
+    if project.design_details:
         design_details = DesignDetailsResponse(
-            id=project.designDetails.id,
-            content=project.designDetails.content,
-            version=project.designDetails.version,
-            created_at=project.designDetails.createdAt,
-            updated_at=project.designDetails.updatedAt
+            id=project.design_details.id,
+            content=project.design_details.content,
+            version=project.design_details.version,
+            created_at=project.design_details.created_at,
+            updated_at=project.design_details.updated_at
         )
     
     suggestions = []
@@ -165,14 +168,14 @@ async def get_project_with_suggestions(
                 id=s.id,
                 title=s.title,
                 description=s.description,
-                category=s.category,
-                severity=s.severity,
-                design_version=s.designVersion,
-                project_id=s.projectId,
-                created_at=s.createdAt,
-                status=s.status,  # ✓ Include status
-                addressed_at=s.addressedAt,  # ✓ Include when addressed
-                addressed_in_version=s.addressedInVersion  # ✓ Include version
+                category=s.category.value,
+                severity=s.severity.value,
+                design_version=s.design_version,
+                project_id=s.project_id,
+                created_at=s.created_at,
+                status=s.status.value,
+                addressed_at=s.addressed_at,
+                addressed_in_version=s.addressed_in_version
             )
             for s in project.suggestions
         ]
@@ -181,10 +184,10 @@ async def get_project_with_suggestions(
         id=project.id,
         title=project.title,
         description=project.description,
-        status=project.status,
-        owner_id=project.ownerId,
-        created_at=project.createdAt,
-        updated_at=project.updatedAt,
+        status=project.status.value,
+        owner_id=project.owner_id,
+        created_at=project.created_at,
+        updated_at=project.updated_at,
         design_details=design_details,
         suggestions=suggestions
     )
@@ -194,8 +197,8 @@ async def get_project_with_suggestions(
 async def update_project(
     project_id: int,
     project_data: ProjectUpdate,
-    current_user = Depends(get_current_user),
-    db: Prisma = Depends(get_db)
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
 ):
     """
     Update project metadata (title, description, status).
@@ -218,8 +221,8 @@ async def update_project(
 async def update_design_details(
     project_id: int,
     design_data: DesignDetailsUpdate,
-    current_user = Depends(get_current_user),
-    db: Prisma = Depends(get_db)
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
 ):
     """
     Update the design details (LLD content) for a project.
@@ -244,8 +247,8 @@ async def update_design_details(
 @router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_project(
     project_id: int,
-    current_user = Depends(get_current_user),
-    db: Prisma = Depends(get_db)
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
 ):
     """
     Delete a project and all associated data.

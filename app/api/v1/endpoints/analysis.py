@@ -13,15 +13,18 @@ Endpoints (in order of matching priority):
 import logging
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status
-from prisma import Prisma
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
 from app.core.deps import get_current_user
+from app.models.user import User
+from app.models.suggestion import Suggestion, SuggestionStatus
 from app.schemas.suggestion import (
     SuggestionResponse, 
     AnalysisResponse, 
     SuggestionStatusUpdate,
-    SuggestionStatus,
     DesignVersionResponse,
     ProjectEvolutionResponse
 )
@@ -37,8 +40,8 @@ router = APIRouter()
 async def update_suggestion_status(
     suggestion_id: int,
     status_update: SuggestionStatusUpdate,
-    current_user = Depends(get_current_user),
-    db: Prisma = Depends(get_db)
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
 ):
     """
     Manually update a suggestion's status.
@@ -51,10 +54,12 @@ async def update_suggestion_status(
     logger.info(f"[STATUS UPDATE] Updating suggestion {suggestion_id} to {status_update.status}")
     
     # First get the suggestion to verify ownership
-    suggestion = await db.suggestion.find_unique(
-        where={"id": suggestion_id},
-        include={"project": True}
+    result = await db.execute(
+        select(Suggestion)
+        .options(selectinload(Suggestion.project))
+        .where(Suggestion.id == suggestion_id)
     )
+    suggestion = result.scalar_one_or_none()
     
     if not suggestion:
         logger.warning(f"[STATUS UPDATE] Suggestion {suggestion_id} not found")
@@ -63,7 +68,7 @@ async def update_suggestion_status(
             detail="Suggestion not found"
         )
     
-    if suggestion.project.ownerId != current_user.id:
+    if suggestion.project.owner_id != current_user.id:
         logger.warning(f"[STATUS UPDATE] User {current_user.id} not authorized for suggestion {suggestion_id}")
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -83,14 +88,14 @@ async def update_suggestion_status(
         id=updated.id,
         title=updated.title,
         description=updated.description,
-        category=updated.category,
-        severity=updated.severity,
-        design_version=updated.designVersion,
-        project_id=updated.projectId,
-        created_at=updated.createdAt,
-        status=updated.status,
-        addressed_at=updated.addressedAt,
-        addressed_in_version=updated.addressedInVersion
+        category=updated.category.value,
+        severity=updated.severity.value,
+        design_version=updated.design_version,
+        project_id=updated.project_id,
+        created_at=updated.created_at,
+        status=updated.status.value,
+        addressed_at=updated.addressed_at,
+        addressed_in_version=updated.addressed_in_version
     )
 
 
@@ -99,8 +104,8 @@ async def update_suggestion_status(
 @router.post("/{project_id}", response_model=AnalysisResponse)
 async def trigger_analysis(
     project_id: int,
-    current_user = Depends(get_current_user),
-    db: Prisma = Depends(get_db)
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
 ):
     """
     Trigger analysis on a project's design.
@@ -130,7 +135,7 @@ async def trigger_analysis(
         )
     
     # Check if design details exist
-    if not project.designDetails or not project.designDetails.content:
+    if not project.design_details or not project.design_details.content:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Project has no design content to analyze. Add design details first."
@@ -145,14 +150,14 @@ async def trigger_analysis(
             id=s.id,
             title=s.title,
             description=s.description,
-            category=s.category,
-            severity=s.severity,
-            design_version=s.designVersion,
-            project_id=s.projectId,
-            created_at=s.createdAt,
-            status=s.status,
-            addressed_at=s.addressedAt,
-            addressed_in_version=s.addressedInVersion
+            category=s.category.value,
+            severity=s.severity.value,
+            design_version=s.design_version,
+            project_id=s.project_id,
+            created_at=s.created_at,
+            status=s.status.value,
+            addressed_at=s.addressed_at,
+            addressed_in_version=s.addressed_in_version
         )
         for s in result["suggestions"]
     ]
@@ -160,7 +165,7 @@ async def trigger_analysis(
     # Build intelligent message
     addressed = result["newly_addressed_count"]
     new_count = result.get("new_suggestions_count", 0)
-    open_count = len([s for s in result["suggestions"] if s.status == "OPEN"])
+    open_count = len([s for s in result["suggestions"] if s.status == SuggestionStatus.OPEN])
     maturity = result["maturity_score"]
     
     message_parts = []
@@ -193,8 +198,8 @@ async def trigger_analysis(
 async def get_project_suggestions(
     project_id: int,
     status_filter: str = None,
-    current_user = Depends(get_current_user),
-    db: Prisma = Depends(get_db)
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
 ):
     """
     Get all suggestions for a project.
@@ -215,21 +220,21 @@ async def get_project_suggestions(
     
     # Filter by status if provided
     if status_filter:
-        suggestions = [s for s in suggestions if s.status == status_filter.upper()]
+        suggestions = [s for s in suggestions if s.status.value == status_filter.upper()]
     
     return [
         SuggestionResponse(
             id=s.id,
             title=s.title,
             description=s.description,
-            category=s.category,
-            severity=s.severity,
-            design_version=s.designVersion,
-            project_id=s.projectId,
-            created_at=s.createdAt,
-            status=s.status,
-            addressed_at=s.addressedAt,
-            addressed_in_version=s.addressedInVersion
+            category=s.category.value,
+            severity=s.severity.value,
+            design_version=s.design_version,
+            project_id=s.project_id,
+            created_at=s.created_at,
+            status=s.status.value,
+            addressed_at=s.addressed_at,
+            addressed_in_version=s.addressed_in_version
         )
         for s in suggestions
     ]
@@ -238,8 +243,8 @@ async def get_project_suggestions(
 @router.get("/{project_id}/evolution", response_model=ProjectEvolutionResponse)
 async def get_project_evolution(
     project_id: int,
-    current_user = Depends(get_current_user),
-    db: Prisma = Depends(get_db)
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
 ):
     """
     Get the evolution history of a project.
@@ -273,11 +278,11 @@ async def get_project_evolution(
     version_responses = [
         DesignVersionResponse(
             id=v.id,
-            version_number=v.versionNumber,
+            version_number=v.version_number,
             content=v.content,
-            created_at=v.createdAt,
-            maturity_score=v.maturityScore,
-            suggestions_count=v.suggestionsCount
+            created_at=v.created_at,
+            maturity_score=v.maturity_score,
+            suggestions_count=v.suggestions_count
         )
         for v in evolution["versions"]
     ]
@@ -289,5 +294,3 @@ async def get_project_evolution(
         versions=version_responses,
         progress_summary=evolution["progress_summary"]
     )
-
-
