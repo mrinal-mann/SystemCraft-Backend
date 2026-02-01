@@ -1,17 +1,12 @@
 #!/usr/bin/env bash
-# exit on error
 set -o errexit
 
-# Install dependencies
 pip install -r requirements.txt
 
-# Set binary cache directory to project root
-# This ensures binaries are included in the deployment and found at runtime
-export PRISMA_PY_BINARY_CACHE_DIR=.
+# Create a specific folder for binaries
+mkdir -p prisma_binaries
+export PRISMA_PY_BINARY_CACHE_DIR=/opt/render/project/src/prisma_binaries
 
-# Fetch Prisma binaries
+# Fetch and Generate
 python -m prisma py fetch
-
-# Generate Prisma Client
 python -m prisma generate
-
