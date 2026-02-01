@@ -68,6 +68,13 @@ def get_async_database_url(url: str) -> tuple[str, dict]:
         ssl_context.verify_mode = ssl.CERT_NONE
         connect_args['ssl'] = ssl_context
     
+    # Disable prepared statement caching to prevent InvalidCachedStatementError
+    # after schema changes. This is especially important during development.
+    # - prepared_statement_cache_size: Client-side cache
+    # - statement_cache_size: Server-side cache (PostgreSQL)
+    connect_args['prepared_statement_cache_size'] = 0
+    connect_args['statement_cache_size'] = 0
+    
     # Rebuild query string without removed params
     new_query = urlencode({k: v[0] for k, v in query_params.items()}, safe='')
     
